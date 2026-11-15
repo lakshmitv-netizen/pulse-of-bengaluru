@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script>/* ?embed: transparent background for use inside the pitch deck */
+if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');</script>
+<style>.embed body { background: transparent !important; padding: 8px !important; }</style>
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exploration 1 • BMTC arrivals board (simulator)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&family=Noto+Sans+Kannada:wght@200..700&display=swap" rel="stylesheet">
+<style>
+  /* Figma: "BMTC • Arrivals and passenger crowd indicator" (46:2), 1280 x 470.
+     Static frame with printed (sticker) column labels + an LED dot-matrix panel. */
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    min-height: 100vh;
+    display: flex; justify-content: center; align-items: center;
+    padding: 24px;
+    background: #f5f5f5;
+  }
+  .stage { zoom: var(--fit, 1); }
+  .board {
+    position: relative;
+    width: 1280px; height: 470px;
+    background: #16191e;
+    border-radius: 20px;
+    overflow: hidden;
+  }
+  .rim {                                   /* 46:28 inset station board rim */
+    position: absolute; left: 12px; top: 12px;
+    width: 1250px; height: 446px;
+    border: 2px solid #737d8a;
+    border-radius: 12px;
+    pointer-events: none;
+  }
+
+  /* printed labels on the frame — not LEDs */
+  .label { position: absolute; top: 30px; color: #9ca8b8; line-height: normal; white-space: nowrap; }
+  .label b { display: block; font: 700 23px "Noto Sans Kannada", sans-serif; }
+  .label span { display: block; font: 600 16px "Inter", sans-serif; letter-spacing: .02em; }
+
+  /* LED panel */
+  .panel {
+    position: absolute; left: 32px; top: 100px;
+    width: 1216px; height: 352px;
+    background: #0b0d10;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .panel canvas { position: absolute; inset: 0; width: 1216px; height: 352px; }
+  .panel .glow { filter: blur(3px); opacity: .75; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+</style>
+</head>
+<body>
+  <main class="stage">
+    <section class="board" aria-label="BMTC arrivals">
+      <div class="label" style="left:45px"><b lang="kn">ಮಾರ್ಗ</b><span>ROUTE</span></div>
+      <div class="label" style="left:230px"><b lang="kn">ಗಮ್ಯಸ್ಥಾನ</b><span>DESTINATION</span></div>
+      <div class="label" style="left:704px"><b lang="kn">ಆಗಮನ</b><span>ETA</span></div>
+      <div class="label" style="left:915px"><b lang="kn">ಜನಸಂದಣಿ</b><span>CROWD</span></div>
+
+      <div class="panel" aria-hidden="true">
+        <canvas id="off"></canvas>
+        <canvas id="glow" class="glow"></canvas>
+        <canvas id="on"></canvas>
+      </div>
+      <div class="rim"></div>
+      <ul class="sr" id="sr"></ul>
+    </section>
+  </main>
+<script src="ledfont.js"></script>
+<script>
+(async () => {
+  // =============================================================================
+  // ONE INSTANCE OF THE BOARD
+  // This object is everything the board shows at one moment. The time slider
+  // will later swap it for the instance at the chosen time.
+  // crowd: list of passenger states, one per stop the bus makes; the bus cycles
+  //        through them, changing at each stop.
+  //   level: 'low' | 'med' | 'high' - three clearly different crowd levels (3 / 6 / 12 of 12 seats)
+  // =============================================================================
+  const INSTANCE = {
+    arrivals: [
+      { route: '335E', en: 'Kadugodi', kn: 'ಕಾಡುಗೋಡಿ', eta: '02', crowd: [{ level: 'high' }, { level: 'high' }] },
+      { route: '500D', en: 'Hebbal', kn: 'ಹೆಬ್ಬಾಳ', eta: '05', crowd: [{ level: 'med' }, { level: 'med' }] },
+      { route: '365', en: 'Bannerghatta', kn: 'ಬನ್ನೇರುಘಟ್ಟ', eta: '08', crowd: [{ level: 'low' }, { level: 'low' }] },
+    ],
+  };
+
+  // ---- LED panel geometry ---------------------------------------------------------
+  const PW = 1216, PH = 352, PITCH = 3.2;
+  const COLS = Math.round(PW / PITCH), ROWS = Math.round(PH / PITCH);   // 380 x 110
+  const ROW_LEDS = 36, ROW0 = 1;                                         // 3 arrival rows
+  const COL = { route: 4, dest: 62, eta: 210, bus: 284 };                // LED columns
+  const rowTop = i => ROW0 + i * ROW_LEDS;
+
+  const AMBER = [255, 189, 74];   // monochrome panel: every LED is amber, on or off
+
+  // light weight keeps Kannada strokes 1–2 LEDs wide so the letterforms stay intact
+  const KN_FONT = '200 62px "Noto Sans Kannada"';
+  await document.fonts.load(KN_FONT, 'ಕನ್ನಡ');
+
+  // ---- rasterising helpers (draw in panel px, sample at LED resolution) -------------
+  const raster = draw => {
+    const c = new OffscreenCanvas(COLS, ROWS), x = c.getContext('2d');
+    x.setTransform(1 / PITCH, 0, 0, 1 / PITCH, 0, 0);
+    draw(x);
+    return x.getImageData(0, 0, COLS, ROWS).data;
+  };
+  const toLayer = (data, color, mode) => {           // → Float32 [r,g,b,v] per LED
+    const L = new Float32Array(COLS * ROWS * 4);
+    for (let i = 0; i < COLS * ROWS; i++) {
+      const a = data[i * 4 + 3] / 255;
+      let v = mode === 'text' ? (a > .45 ? 1 : 0) : Math.round((data[i * 4] / 255) * a * 8) / 8;
+      if (v > .02) L.set([...color, v], i * 4);
+    }
+    return L;
+  };
+  const px = (c) => c * PITCH;
+
+  // ---- text layers: English and Kannada (boards alternate languages) ----------------
+  // English/digits: 5x7 dot-matrix LED font (ledfont.js), single-dot strokes.
+  // Kannada: Noto Sans Kannada sampled at LED resolution.
+  const ledText = (L, str, col, row, color) => {
+    [...str].forEach((ch, k) => {
+      for (const [dx, dy] of ledGlyph(ch)) {
+        const c = col + k * LED_ADVANCE + dx, r = row + dy;
+        if (c >= 0 && c < COLS && r >= 0 && r < ROWS) L.set([...color, 1], (r * COLS + c) * 4);
+      }
+    });
+  };
+  // Zhang–Suen thinning: reduces filled strokes to single-LED-wide lines
+  function thin(b) {
+    const at = (c, r) => (c < 0 || r < 0 || c >= COLS || r >= ROWS) ? 0 : b[r * COLS + c];
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const step of [0, 1]) {
+        const kill = [];
+        for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+          if (!b[r * COLS + c]) continue;
+          const n = [at(c, r - 1), at(c + 1, r - 1), at(c + 1, r), at(c + 1, r + 1), at(c, r + 1), at(c - 1, r + 1), at(c - 1, r), at(c - 1, r - 1)];
+          const B = n.reduce((s, v) => s + v, 0);
+          if (B < 2 || B > 6) continue;
+          let A = 0; for (let k = 0; k < 8; k++) if (!n[k] && n[(k + 1) % 8]) A++;
+          if (A !== 1) continue;
+          if (step === 0 ? (n[0] * n[2] * n[4] || n[2] * n[4] * n[6]) : (n[0] * n[2] * n[6] || n[0] * n[4] * n[6])) continue;
+          kill.push(r * COLS + c);
+        }
+        if (kill.length) { changed = true; for (const i of kill) b[i] = 0; }
+      }
+    }
+  }
+  const textLayer = lang => {
+    const L = new Float32Array(COLS * ROWS * 4);
+    if (lang === 'kn') {
+      // sample Kannada at LED resolution (on/off)
+      const d = raster(x => {
+        x.fillStyle = '#fff'; x.font = KN_FONT; x.textBaseline = 'middle';
+        INSTANCE.arrivals.forEach((a, i) => x.fillText(a.kn, px(COL.dest), px(rowTop(i) + 19)));
+      });
+      const bin = new Uint8Array(COLS * ROWS);
+      for (let i = 0; i < bin.length; i++) bin[i] = d[i * 4 + 3] > 128 ? 1 : 0;
+      for (let i = 0; i < bin.length; i++) if (bin[i]) L.set([...AMBER, 1], i * 4);
+    }
+    INSTANCE.arrivals.forEach((a, i) => {
+      const top = rowTop(i) + 11;
+      ledText(L, a.route, COL.route, top, AMBER);
+      ledText(L, a.eta, COL.eta, top, AMBER);
+      if (lang === 'en') ledText(L, a.en, COL.dest, top, AMBER);
+    });
+    return L;
+  };
+  let TEXT = { en: textLayer('en'), kn: textLayer('kn') };
+
+  // ---- the bus: city bus, side view, front on the right ------------------------------
+  // Monochrome panel (LEDs on/off), so the bus is pixel art drawn LED by LED.
+  // 66 x 21 LEDs: solid rounded body, 3 dark side windows (long middle one), windscreen, headlight,
+  // two wheels in dark arches. Passengers light up inside the windows.
+  const BUS_W = 66;
+  // EXPLORATION 1: smaller wheels, bigger windows, the crowd shown as one lump instead of seated people
+  const WHEELS = [14, 46], WHEEL_R = 16;                  // wheel centres (LED col, row)
+  const RING = [[0, -2], [1, -2], [2, -1], [2, 0], [2, 1], [1, 2], [0, 2], [-1, 2], [-2, 1], [-2, 0], [-2, -1], [-1, -2]];   // a smaller wheel: radius 2
+  const WINDOWS = [[2, 18], [20, 43], [45, 57]];   // thinner pillars: bigger windows (pillars at 19 and 44)
+  const PANE_TOP = 2, PANE_BOTTOM = 12;   // taller panes: a 1-LED roof, and they reach lower
+  const BUS_PIXELS = (() => {
+    const p = new Set(), add = (c, r) => p.add(c + ',' + r), del = (c, r) => p.delete(c + ',' + r);
+    const span = (r, a, b) => { for (let c = a; c <= b; c++) add(c, r); };
+    span(1, 1, 62); span(2, 0, 63);                        // a 1-LED roof above the taller windows (row 2 is cut by the panes)
+    for (let r = 3; r <= 15; r++) span(r, 0, 64);          // body
+    span(16, 1, 63);                                       // rounded bottom corners
+    // window panes (dark); pillars stay lit between them; last pane = windscreen
+    for (const [a, b] of [...WINDOWS, [59, 63]]) for (let r = PANE_TOP; r <= PANE_BOTTOM; r++) for (let c = a; c <= b; c++) del(c, r);
+    add(63, 2); add(64, 3);                                // round the front top corner: roof (62,1) -> (63,2) -> front wall (64,3)
+    // wheel arches (dark); the wheel ring is drawn inside them
+    for (const w of WHEELS) for (let r = 12; r <= 22; r++) for (let c = w - 5; c <= w + 5; c++)
+      if (Math.hypot(c - w, r - WHEEL_R) <= 3.4) del(c, r);
+    // headlight (monochrome, so it's drawn with on/off LEDs): a lit 3x2 lamp in the front lower
+    // corner, outlined by off LEDs (the dark windscreen above it)
+    for (const [c, r] of [[61, 12], [61, 13], [61, 14], [62, 14], [63, 14], [64, 14]]) del(c, r);
+    return [...p].map(s => s.split(',').map(Number));
+  })();
+  const busTop = i => rowTop(i) + 5;
+  const BUS_LAYER = (() => {
+    const L = new Float32Array(COLS * ROWS * 4);
+    INSTANCE.arrivals.forEach((a, i) => {
+      for (const [c, r] of BUS_PIXELS) L.set([...AMBER, 1], ((busTop(i) + r) * COLS + COL.bus + c) * 4);
+    });
+    return L;
+  })();
+
+  // passengers: seated figures only, three seats per window
+  // 12 seats at one uniform 4-LED spacing along the whole bus (none on a pillar at col 18 / 42),
+  // so how full the bus is reads at a glance: 3 rear, 6 middle, 3 front
+  const SEATS = [5, 9, 13, 21, 25, 29, 33, 37, 41, 46, 50, 54];   // exploration 1: 3 rear, 6 middle, 3 front, 4 apart, every seat at least 1 LED clear of the pillars
+  const SITTING = [[0, 0], [0, 1], [1, 1], [0, 2], [1, 2]];    // 5-LED person: head top-left on a 2x2 body
+  const FLOOR = PANE_BOTTOM - 1;
+  const pick = (s, k, n) => s[Math.floor(k * s.length / n)];
+  // occupancy: 3 levels, always equidistant; after each stop people take the other evenly spaced
+  // arrangement (high = every seat, med = every other seat, low = every 4th seat, 1 per window)
+  const occupied = (level, stop, k) =>
+    level === 'high' ? true : level === 'med' ? k % 2 === stop % 2 : k % 4 === (stop % 2 ? 2 : 1);
+
+  // ---- motion: each bus drives, stops at a stop (doors open, crowd changes), drives on
+  const CYCLE = 14;                          // seconds per drive + stop
+  const OFFSET = [0, 4.7, 9.3];              // rows are out of step
+  const speedAt = p => p < 6 ? 1 : p < 7 ? 1 - (p - 6) : p < 12 ? 0 : p < 13 ? p - 12 : 1;
+  // the bus is fully stopped from 7 s to 12 s; passengers board/alight only inside that window
+  const STOP_FROM = 7.4, STOP_TO = 11.6;
+  const busState = (i, t) => {
+    const T = t + OFFSET[i], p = T % CYCLE, stop = Math.floor(T / CYCLE);
+    const states = INSTANCE.arrivals[i].crowd;
+    const from = states[stop % states.length], to = states[(stop + 1) % states.length];
+    return { p, from, to, stop, speed: speedAt(p), open: p > STOP_FROM && p < STOP_TO };
+  };
+  // each changing spot flips at its own moment while the doors are open
+  const flipAt = (i, k, row) => STOP_FROM + .5 + ((Math.sin(i * 91.7 + k * 12.9 + row * 5.3) * 43758.5) % 1 + 1) % 1 * (STOP_TO - STOP_FROM - 1);
+
+  // ---- canvases -------------------------------------------------------------------
+  const dpr = Math.max(2, devicePixelRatio || 1);
+  const mk = id => { const c = document.getElementById(id); c.width = PW * dpr; c.height = PH * dpr; const x = c.getContext('2d'); x.scale(dpr, dpr); return x; };
+  const offCtx = mk('off'), glowCtx = mk('glow'), onCtx = mk('on');
+  const R = PITCH * 0.38;
+  offCtx.fillStyle = 'rgba(255,255,255,.05)';                            // unlit LEDs
+  offCtx.beginPath();
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const x = (c + .5) * PITCH, y = (r + .5) * PITCH;
+    offCtx.moveTo(x + R, y); offCtx.arc(x, y, R, 0, Math.PI * 2);
+  }
+  offCtx.fill();
+
+  const leds = new Float32Array(COLS * ROWS * 4);
+  const set = (c, r, color, v) => { if (c >= 0 && c < COLS && r >= 0 && r < ROWS) leds.set([...color, v], (r * COLS + c) * 4); };
+  const dist = [0, 0, 0];
+  let lastT = 0;
+
+  function frame(t) {
+    const dt = Math.min(.1, t - lastT); lastT = t;
+    const lang = Math.floor(t / 5) % 2 ? 'kn' : 'en';                    // switch language every 5 s
+    leds.set(TEXT[lang]);
+
+    INSTANCE.arrivals.forEach((a, i) => {
+      const s = busState(i, t);
+      dist[i] += s.speed * dt * 6;                                       // LEDs per second
+      const c0 = COL.bus, r0 = busTop(i);
+      // ride bumps: while driving, only the passengers are jostled up one LED row at irregular
+      // road bumps (body and wheels stay steady). A stopped bus is still.
+      const bump = Math.floor(dist[i] * 2);          // ~12 chances a second at full speed, each very brief
+      let hx = Math.imul(bump ^ Math.imul(i + 1, 0x9E3779B1), 0x85EBCA6B); hx ^= hx >>> 13;
+      hx = Math.imul(hx, 0xC2B2AE35); hx ^= hx >>> 16; const hash = (hx >>> 0) / 4294967296;   // well-mixed bump pattern
+      const dy = s.speed > 0.95 && hash < 0.025 ? -1 : 0;  // a brief, rare jolt (~1 every 3 s), only at full speed
+      for (const [c, r] of BUS_PIXELS) set(c0 + c, r0 + r, AMBER, 1);    // body stays steady
+      // wheels: a ring of LEDs with one gap that travels round as the bus rolls
+      const gap = Math.floor(dist[i] * 2) % RING.length;
+      WHEELS.forEach(w => RING.forEach(([dc, dr], k) => {
+        if (k !== gap && k !== (gap + RING.length / 2) % RING.length) set(c0 + w + dc, r0 + WHEEL_R + dr, AMBER, 1);
+      }));
+      // the crowd. Low and medium: seated people, as on the main board. Full: one packed lump over
+      // every window, its top going up and down: people sitting (low heads) and standing (high heads).
+      // the driver: always there, seated in the windscreen, facing the same way as the passengers
+      for (const [dc, dr] of SITTING) set(c0 + 60 + dc, r0 + dy + FLOOR - 2 + dr, AMBER, 1);   // col 60: 1 LED clear of the pillar at 58
+      const boarding = s.speed === 0 && s.p >= STOP_FROM && s.p < STOP_TO;
+      const nowLevel = boarding ? (s.p < (STOP_FROM + STOP_TO) / 2 ? s.from.level : s.to.level) : (s.p < STOP_FROM ? s.from.level : s.to.level);
+      if (nowLevel === 'high') {
+        const SILL = PANE_BOTTOM - 1, MAXH = SILL - PANE_TOP - 1;              // dark sill below, a dark band above
+        // soft mounds: a group of people every ~5 LEDs, some standing (tall), some sitting (low), blended smoothly.
+        // Each window's lump stops 1 LED short of the pillars on either side.
+        for (const [wa, wb] of WINDOWS) {
+          const bumps = [];
+          for (let x = wa + 3, j = 0; x <= wb - 2; x += 5, j++) {
+            const r = ((Math.sin((x + i * 31) * 12.9898) * 43758.5453) % 1 + 1) % 1;
+            bumps.push([x + (r - .5) * 1.6, r > .4 ? 2.4 : 1.4]);                     // [centre, extra height]: standing / sitting
+          }
+          for (let c = wa + 1; c <= wb - 1; c++) {
+            let up = 0; for (const [x, a] of bumps) up = Math.max(up, a * Math.exp(-(((c - x) / 2.4) ** 4)));   // flat-topped, rounded mounds
+            const n = c - (wa + 1), notch = n % 4 === 3 ? 2 + (((c * 7 + i * 3) % 2)) : 0;   // after every 3 columns, the top 2-3 LEDs go dark: people
+            const h = Math.max(1, Math.min(MAXH, Math.round(4 + up)) - notch);   // at least 4 LEDs tall, notched between people
+            for (let r = 0; r < h; r++) set(c0 + c, r0 + dy + SILL - r, AMBER, 1);
+          }
+        }
+      } else {
+        SEATS.forEach((c, k) => {
+          const was = occupied(s.from.level, s.stop, k), will = occupied(s.to.level, s.stop + 1, k);
+          const on = boarding ? (s.p < flipAt(i, k, 1) ? was : will) : (s.p < STOP_FROM ? was : will);
+          if (on) for (const [dc, dr] of SITTING) set(c0 + c + dc, r0 + dy + FLOOR - 2 + dr, AMBER, 1);
+        });
+      }
+    });
+
+    onCtx.clearRect(0, 0, PW, PH);
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const i = (r * COLS + c) * 4, v = leds[i + 3];
+      if (!v) continue;
+      onCtx.fillStyle = `rgba(${leds[i]},${leds[i + 1]},${leds[i + 2]},${v})`;
+      onCtx.beginPath(); onCtx.arc((c + .5) * PITCH, (r + .5) * PITCH, R, 0, Math.PI * 2); onCtx.fill();
+    }
+    glowCtx.clearRect(0, 0, PW, PH);
+    glowCtx.drawImage(onCtx.canvas, 0, 0, PW, PH);
+  }
+
+  // screen-reader summary of the instance
+  const describe = () => { document.getElementById('sr').innerHTML = INSTANCE.arrivals
+    .map(a => `<li>${a.route} to ${a.en}, ${+a.eta} minutes, ${a.crowd[0].level === 'high' ? 'full' : a.crowd[0].level === 'med' ? 'filling up' : 'seats free'}</li>`).join(''); };
+  describe();
+
+  // ---- simulator API: postMessage({ sim: 'bmtc', cmd: 'set', arrivals: [{ route, eta, level }] })
+  // level: 'low' | 'med' | 'high'. Rows re-sort by arrival time; text is redrawn in both languages.
+  addEventListener('message', (e) => {
+    const d = e.data; if (!d || d.sim !== 'bmtc' || d.cmd !== 'set') return;
+    for (const u of d.arrivals) {
+      const a = INSTANCE.arrivals.find(x => x.route === u.route); if (!a) continue;
+      if (u.eta != null) a.eta = String(Math.max(0, Math.min(99, Math.round(u.eta)))).padStart(2, '0');
+      if (u.level) a.crowd = [{ level: u.level }, { level: u.level }];
+    }
+    INSTANCE.arrivals.sort((x, y) => +x.eta - +y.eta);
+    TEXT = { en: textLayer('en'), kn: textLayer('kn') };
+    describe();
+  });
+
+  // ?t=<seconds> starts the board at that moment of its cycle (hook for the time slider)
+  const T0 = +new URLSearchParams(location.search).get('t') || 0;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let lastDraw = -1;
+  const loop = now => {
+    if (now - lastDraw > 80) { frame(now / 1000 + T0); lastDraw = now; }   // ~12 fps, like an LED controller
+    if (!reduce) requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+
+  const fit = () => document.documentElement.style.setProperty('--fit', Math.min(1, (innerWidth - 48) / 1280));
+  addEventListener('resize', fit); fit();
+})();
+</script>
+</body>
+</html>

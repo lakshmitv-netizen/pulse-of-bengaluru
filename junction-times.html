@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ejipura junction: photos by time of day</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 40px; background: #0f141b; color: #f2efe6; font: 16px/1.5 "Inter", system-ui, sans-serif; }
+  h1 { margin: 0 0 6px; font-size: 28px; }
+  .lead { margin: 0 0 32px; color: #9aa3b2; }
+  .toggle { margin: 0 0 28px; display: flex; gap: 10px; }
+  .toggle button { font: inherit; padding: 8px 16px; border-radius: 999px; border: 1.5px solid #2a3340; background: #171e28; color: #f2efe6; cursor: pointer; }
+  .toggle button.on { background: #dcf26a; color: #0f141b; border-color: #dcf26a; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); gap: 28px; }
+  figure { margin: 0; background: #171e28; border: 1px solid #2a3340; border-radius: 14px; overflow: hidden; }
+  .frame { position: relative; aspect-ratio: 1410 / 736; overflow: hidden; background: #000; }
+  .frame img { position: absolute; display: block; }
+  /* full photo */
+  .full .frame img { inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  /* the same crop the pitch page uses (603:395 window into the photo) */
+  .crop .frame { aspect-ratio: 603 / 395; }
+  .crop .frame img { height: 160%; left: -93.91%; top: -33.92%; width: 200.75%; }
+  figcaption { padding: 14px 18px 16px; display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+  figcaption b { font-size: 20px; }
+  figcaption span { color: #9aa3b2; font-size: 14px; }
+  .tag { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: #232c38; color: #9aa3b2; margin-left: 8px; vertical-align: 2px; }
+  .tag.orig { background: #7e95e0; color: #0f141b; }
+</style>
+</head>
+<body>
+  <h1>Ejipura junction, through the day</h1>
+  <p class="lead">Every photo the junction slider uses, in slider order. Each one shows from its hour until the next.</p>
+  <div class="toggle">
+    <button class="on" data-mode="full">Full photo</button>
+    <button data-mode="crop">As cropped on the page</button>
+  </div>
+  <div class="grid full" id="grid"></div>
+<script>
+  const PHOTOS = [
+    ['6:00 am', 'Dawn, light traffic', 'slider: until 8:30 am', 'assets/jx-0600.jpg'],
+    ['9:15 am', 'Morning peak', 'slider: 8:30 – 11 am', 'assets/image-15.png', true],
+    ['12:30 pm', 'Scorching midday, lighter traffic', 'slider: 11 am – 3:30 pm', 'assets/jx-1230.jpg'],
+    ['3:45 pm', 'School time, low sun, heavy', 'slider: 3:30 – 6:30 pm', 'assets/jx-1545.jpg'],
+    ['8:30 pm', 'Evening peak, bumper to bumper', 'slider: 6:30 – 9:30 pm', 'assets/jx-2030.jpg'],
+    ['10:00 pm', 'Easing off, moderate', 'slider: 9:30 – 11 pm', 'assets/jx-2200.jpg'],
+    ['11:30 pm', 'Late night, empty road', 'slider: 11 pm onwards', 'assets/jx-2330.jpg'],
+  ];
+  const grid = document.getElementById('grid');
+  grid.innerHTML = PHOTOS.map(([t, what, when, src, orig]) => `
+    <figure>
+      <div class="frame"><img src="${src}" alt="Ejipura junction at ${t}"></div>
+      <figcaption><div><b>${t}</b>${orig ? '<span class="tag orig">original photo</span>' : '<span class="tag">Nano Banana</span>'}<br><span>${what}</span></div><span>${when}</span></figcaption>
+    </figure>`).join('');
+  document.querySelectorAll('.toggle button').forEach((b) => b.onclick = () => {
+    document.querySelectorAll('.toggle button').forEach((x) => x.classList.toggle('on', x === b));
+    grid.className = 'grid ' + b.dataset.mode;
+  });
+</script>
+</body>
+</html>

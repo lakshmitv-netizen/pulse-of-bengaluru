@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script>/* ?embed: transparent background for use inside the pitch deck */
+if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');</script>
+<style>.embed body { background: transparent !important; padding: 8px !important; min-height: 0 !important; height: 100vh; overflow: hidden; }  .embed .lamp-rail { display: none; }  .only-day .sign--night, .only-night .sign--day { display: none; }
+</style>
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hemmigepura Ward – 198 (night, LED segments) • B-lore Jatre signboards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&family=Noto+Sans+Kannada:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sign-w: 1112px;
+    --sign-h: 393px;
+    --text: #fffff7;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 24px;
+    background: #f5f5f5;
+  }
+  /* scales the 1:1 Figma artboards to fit the viewport width */
+  .stage {
+    display: flex;
+    flex-direction: column;
+    gap: 64px;
+    zoom: var(--fit, 1);
+  }
+
+  /* Figma: loose nodes in Section 1, origin = (295, 3197) */
+  .sign { position: relative; width: var(--sign-w); height: var(--sign-h); }
+  .board { position: absolute; display: block; }  /* arrow points right */
+  /* content shifted right by the arrow width (~142px) so it stays in the rectangular body */
+  .sign { --shift: 0px; }
+  .board--outer { left: 0; top: 0; width: 1111.68px; height: 392.1px; }       /* 55:2560 */
+  .board--inner { left: 13.02px; top: 10.65px; width: 1084.89px; height: 373.47px; } /* 55:2563 */
+
+  .txt { position: absolute; white-space: nowrap; color: var(--text); line-height: normal; }
+  .ward    { top: 52.3px; font: 600 25px/30px "Inter", "Noto Sans Kannada", sans-serif; } /* 55:2568 / 55:2569 */
+  .ward--en { left: calc(53px + var(--shift)); }
+  .ward--kn { left: calc(392px + var(--shift)); }  /* moved right to clear the longer "Hemmigepura Ward - 198" */
+  .route   { left: calc(53px + var(--shift)); top: 124.3px; color: #fff; font: 600 44px/53px "Inter", sans-serif; }  /* 54px → 44px to fit the longer name */            /* 55:2566 */
+  .dest-kn { left: calc(53px + var(--shift)); top: 210.3px; font: 700 44px/60px "Noto Sans Kannada", sans-serif; }  /* 54px → 44px */             /* 55:2567 */
+
+  /* 55:2570 LED dot-matrix strip */
+  .strip {
+    position: absolute;
+    left: calc(59px + var(--shift)); top: 286px;
+    width: 812px; height: 56px;
+    background: #070d11;
+    border: 1px solid #fcf4f4;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .seg { position: absolute; width: 4px; height: 26px; border-radius: 2px; }  /* metro-style LED bar */
+  .led {
+    position: absolute;
+    width: 4.8px; height: 4.8px;
+    border-radius: 50%;
+    /* positions are frame-relative in Figma (border is inside) */
+    margin: -1px 0 0 -1px;
+  }
+
+  /* ---- DAY (afternoon): drawn by day.js — sunlit road with swaying canopy shadows ---- */
+
+  @media (prefers-reduced-motion: reduce) { .led { animation: none !important; } }
+
+  /* ---- NIGHT: streetlights + pedestrians (flash timing from the Figma export) ---- */
+  .led--ped { animation: ped 30s linear var(--dl) infinite; }
+  @keyframes ped {
+    0%    { background: var(--peak); }
+    2%    { background: color-mix(in srgb, var(--peak) 78%, var(--base)); }
+    5%    { background: color-mix(in srgb, var(--peak) 43%, var(--base)); }
+    8.7%  { background: color-mix(in srgb, var(--peak) 16%, var(--base)); }
+    13.3%, 100% { background: var(--base); }
+  }
+</style>
+</head>
+<body>
+  <main class="stage">
+
+    <!-- DAY • afternoon shade map -->
+    <section class="sign sign--day" aria-label="Hemmigepura Ward 198 signboard, 3rd Main Road, Pavamanapura Layout, afternoon shade map">
+      <img class="board board--outer" src="assets/board-outer.svg" alt="">
+      <img class="board board--inner" src="assets/board-inner.svg" alt="">
+
+      <p class="txt ward ward--en">Hemmigepura Ward - 198</p>
+      <p class="txt ward ward--kn" lang="kn">ಹೆಮ್ಮಿಗೆಪುರ ವಾರ್ಡ್ – 198</p>
+      <h1 class="txt route">3rd Main Road, Pavamanapura Layout</h1>
+      <p class="txt dest-kn" lang="kn">3ನೇ ಮುಖ್ಯ ರಸ್ತೆ, ಪವಮಾನಪುರ ಬಡಾವಣೆ</p>
+
+      <div class="strip" id="day-strip" aria-hidden="true"></div>
+    </section>
+
+    <!-- NIGHT • streetlights, 3rd one broken -->
+    <section class="sign sign--night" aria-label="Hemmigepura Ward 198 signboard, 3rd Main Road, Pavamanapura Layout, night">
+      <img class="board board--outer" src="assets/board-outer.svg" alt="">
+      <img class="board board--inner" src="assets/board-inner.svg" alt="">
+
+      <p class="txt ward ward--en">Hemmigepura Ward - 198</p>
+      <p class="txt ward ward--kn" lang="kn">ಹೆಮ್ಮಿಗೆಪುರ ವಾರ್ಡ್ – 198</p>
+      <h2 class="txt route">3rd Main Road, Pavamanapura Layout</h2>
+      <p class="txt dest-kn" lang="kn">3ನೇ ಮುಖ್ಯ ರಸ್ತೆ, ಪವಮಾನಪುರ ಬಡಾವಣೆ</p>
+
+      <div class="strip" id="night-strip" aria-hidden="true"></div>
+    </section>
+
+  </main>
+<script>
+  const view = new URLSearchParams(location.search).get('view');
+  document.documentElement.classList.add('only-night');
+</script>
+<script>
+  const fit = () => {
+    const s = document.documentElement.classList.contains('embed') ? (innerWidth - 16) / 1112 : Math.min(1, (innerWidth - 48) / 1112);
+    document.documentElement.style.setProperty('--fit', s);
+  };
+  addEventListener('resize', fit); fit();
+</script>
+<script src="night-sim.js"></script>
+</body>
+</html>

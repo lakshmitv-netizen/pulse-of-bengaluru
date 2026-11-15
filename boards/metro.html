@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script>/* ?embed: transparent background for use inside the pitch deck */
+if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');</script>
+<style>.embed body { background: transparent !important; padding: 8px !important; }</style>
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Namma Metro coach board (simulator) • Moving train and coach density • B-lore Jatre signboards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&family=Noto+Sans+Kannada:wght@700&family=Noto+Sans:wght@700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 24px;
+    background: #f5f5f5;
+  }
+  /* scales the 1:1 Figma artboard to fit the viewport width */
+  .stage { zoom: var(--fit, 1); }
+
+  /* 37:2 board — 1040x338 (narrowed from 1440), auto-layout column, padding 48, gap 24 */
+  .board {
+    position: relative;
+    width: 1040px; height: 338px;
+    background: #16191e;
+    border-radius: 22px;
+    overflow: hidden;
+  }
+  .abs { position: absolute; }
+
+  /* 37:3 Station destination display */
+  .dest { position: absolute; left: 48px; top: 48px; width: 944px; height: 148px; overflow: hidden; }
+  .txt { position: absolute; white-space: nowrap; }
+  .kn { font-family: "Noto Sans", "Noto Sans Kannada", sans-serif; /* Latin glyphs from Noto Sans Bold (as in Figma), Kannada falls through */ font-weight: 700; }
+  .en { font-family: "Inter", sans-serif; font-weight: 600; }
+  .caption   { left: 0; top: 0;  font-size: 19px; line-height: 26px; color: #99a6b5; }  /* 37:6 */
+  .name-kn   { left: 0; top: 29px; font-size: 40px; line-height: 54px; color: #ffbd4a; } /* 37:7 */
+  .name-en   { left: 0; top: 88px; font-size: 48px; line-height: 58px; color: #ffbd4a; } /* 37:8 */
+  .time-kn   { left: 830px; top: 0; font-size: 26px; line-height: 35px; color: #f2f5f7; } /* 37:9 */
+  .time-en   { left: 830px; top: 40px; font-size: 18px; line-height: 22px; color: #99a6b5; } /* 37:10 */
+  /* 41:2 Two-digit arrival countdown */
+  .countdown { position: absolute; left: 830px; top: 82px; width: 114px; height: 64px; overflow: hidden; }
+  .digit { position: absolute; left: 0; top: 0; white-space: nowrap; font: 600 48px/58px "Inter", sans-serif; color: #ffbd4a; }
+
+  /* 37:4 Single train density strip */
+  .strip { position: absolute; left: 48px; top: 235px; width: 944px; height: 56px;  /* a slim strip, same centre */ background: #090e14; border-radius: 12px; overflow: hidden; }
+  /* 41:7 Grey LEDs • Moving surroundings (5400 wide, 450 LEDs, 12px pitch) */
+  .track { position: absolute; left: 0; top: 0; width: 5400px; height: 56px; overflow: hidden;
+           will-change: transform; }
+  .track > i { position: absolute; top: 18px; width: 4px; margin-left: 2px;  /* thinner LEDs (was 8px), centred on the same pitch */ height: 20px; border-radius: 2px; }
+  /* 40:16 Continuous single-hue train LED strip (stroke 1.5 inside) */
+  /* train: no outline / patch — box hugs the lit LEDs (6px margin, ~one LED gap) and matches the strip bg,
+     so the grey off-LEDs run right up to the first and last coach. 6 coaches × 6 LEDs */
+  .train { position: absolute; left: 216px; top: 4px !important;  /* on the 12px LED grid: never half-covers a grey LED */ top: 19px; width: 516px;  /* coaches 1 LED slot apart + driver cab at the front */ height: 48px; background: #090e14; overflow: hidden; }
+  .coach { z-index: 1; position: absolute; left: 13.5px; top: 0; }
+  /* sticker outline: border around the train + a divider line in each empty LED slot between coaches */
+  .strip::after { content: ""; position: absolute; right: 0; top: 0; width: 8px; height: 100%; background: #090e14; }  /* hides the edge LED slot */
+  .train > svg { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+  .train > b { position: absolute; top: 1px; width: 1.5px; height: 46px; background: #9AA1AB; z-index: 1; }
+  .coach > i { position: absolute; top: 14px; height: 19px !important; border-radius: 2px 2px 0 0 !important;  /* same row as the track; the sticker's window edge cuts the bottoms off square */ width: 4px; margin-left: 2px;  /* thinner LEDs (was 8px), centred on the same pitch */ height: 20px; border-radius: 2px; }
+
+  /* 37:17 Station display metal rim */
+  .rim { position: absolute; left: 14px; top: 14px; width: 1012px; height: 312px; border: 2px solid #7a808c; border-radius: 14px; pointer-events: none; }
+
+  /* ---- Figma motion (get_motion_context, one 618s looping timeline) ---- */
+  /* track motion is driven by the script at the bottom (faster than the Figma 618s timeline) */
+  /* Namma Metro styled sticker: light purple body, dark grey window band, purple stripe, light grey windscreens. Windows: empty var(--scene, #4a4a4a), people #FFEFA3 (packed 5/6, medium 3/6, almost empty 1/6) */
+  .coach > i { background: var(--scene, #4a4a4a); }  /* windows: empty = off, full of people = solid purple; empty = see-through to the scenery behind */
+  .d0000 { background: var(--scene, #4a4a4a); color: transparent; animation: kf_d0000 618s linear infinite; }
+  @keyframes kf_d0000 { 0% { background-color: var(--scene, #4a4a4a); color: transparent; } 19.515% { animation-timing-function: ease-in-out; background-color: var(--scene, #4a4a4a); color: transparent; } 21.117% { background-color: var(--scene, #4a4a4a); color: transparent; } 38.932% { animation-timing-function: ease-in-out; background-color: var(--scene, #4a4a4a); color: transparent; } 40.534% { background-color: var(--scene, #4a4a4a); color: transparent; } 58.35% { animation-timing-function: ease-in-out; background-color: var(--scene, #4a4a4a); color: transparent; } 59.951% { background-color: var(--scene, #4a4a4a); color: transparent; } 100% { background-color: var(--scene, #4a4a4a); color: transparent; } }
+  .d0110 { background: var(--scene, #4a4a4a); color: transparent; animation: kf_d0110 618s linear infinite; }
+  @keyframes kf_d0110 { 0% { background-color: var(--scene, #4a4a4a); color: transparent; } 19.515% { animation-timing-function: ease-in-out; background-color: var(--scene, #4a4a4a); color: transparent; } 21.117% { background-color: #D08CFF; color: transparent; } 38.932% { animation-timing-function: ease-in-out; background-color: #D08CFF; color: transparent; } 40.534% { background-color: #D08CFF; color: transparent; } 58.35% { animation-timing-function: ease-in-out; background-color: #D08CFF; color: transparent; } 59.951% { background-color: var(--scene, #4a4a4a); color: transparent; } 100% { background-color: var(--scene, #4a4a4a); color: transparent; } }
+  .d1010 { background: #D08CFF; color: transparent; animation: kf_d1010 618s linear infinite; }
+  @keyframes kf_d1010 { 0% { background-color: #D08CFF; color: transparent; } 19.515% { animation-timing-function: ease-in-out; background-color: #D08CFF; color: transparent; } 21.117% { background-color: var(--scene, #4a4a4a); color: transparent; } 38.932% { animation-timing-function: ease-in-out; background-color: var(--scene, #4a4a4a); color: transparent; } 40.534% { background-color: #D08CFF; color: transparent; } 58.35% { animation-timing-function: ease-in-out; background-color: #D08CFF; color: transparent; } 59.951% { background-color: var(--scene, #4a4a4a); color: transparent; } 100% { background-color: var(--scene, #4a4a4a); color: transparent; } }
+  .d1101 { background: #D08CFF; color: transparent; animation: kf_d1101 618s linear infinite; }
+  @keyframes kf_d1101 { 0% { background-color: #D08CFF; color: transparent; } 19.515% { animation-timing-function: ease-in-out; background-color: #D08CFF; color: transparent; } 21.117% { background-color: #D08CFF; color: transparent; } 38.932% { animation-timing-function: ease-in-out; background-color: #D08CFF; color: transparent; } 40.534% { background-color: var(--scene, #4a4a4a); color: transparent; } 58.35% { animation-timing-function: ease-in-out; background-color: var(--scene, #4a4a4a); color: transparent; } 59.951% { background-color: #D08CFF; color: transparent; } 100% { background-color: #D08CFF; color: transparent; } }
+  .d1111 { background: #D08CFF; color: transparent; animation: kf_d1111 618s linear infinite; }
+  @keyframes kf_d1111 { 0% { background-color: #D08CFF; color: transparent; } 19.515% { animation-timing-function: ease-in-out; background-color: #D08CFF; color: transparent; } 21.117% { background-color: #D08CFF; color: transparent; } 38.932% { animation-timing-function: ease-in-out; background-color: #D08CFF; color: transparent; } 40.534% { background-color: #D08CFF; color: transparent; } 58.35% { animation-timing-function: ease-in-out; background-color: #D08CFF; color: transparent; } 59.951% { background-color: #D08CFF; color: transparent; } 100% { background-color: #D08CFF; color: transparent; } }
+  .t-42_1611 { animation: kf_42_1611 618s linear infinite; }
+  @keyframes kf_42_1611 { 0% { animation-timing-function: step-end; opacity: 1; } 9.709% { animation-timing-function: step-end; opacity: 0; } 77.832% { animation-timing-function: step-end; opacity: 1; } 87.54% { opacity: 0; } 100% { opacity: 0; } }
+  .t-42_1602 { animation: kf_42_1602 618s linear infinite; }
+  @keyframes kf_42_1602 { 0% { animation-timing-function: step-end; opacity: 0; } 9.709% { animation-timing-function: step-end; opacity: 1; } 19.417% { animation-timing-function: step-end; opacity: 0; } 87.54% { animation-timing-function: step-end; opacity: 1; } 97.249% { opacity: 0; } 100% { opacity: 0; } }
+  .t-42_1593 { animation: kf_42_1593 618s linear infinite; }
+  @keyframes kf_42_1593 { 0% { animation-timing-function: step-end; opacity: 0; } 19.417% { animation-timing-function: step-end; opacity: 1; } 29.126% { animation-timing-function: step-end; opacity: 0; } 97.249% { opacity: 1; } 100% { opacity: 1; } }
+  .t-42_1584 { animation: kf_42_1584 618s linear infinite; }
+  @keyframes kf_42_1584 { 0% { animation-timing-function: step-end; opacity: 0; } 29.126% { animation-timing-function: step-end; opacity: 1; } 38.835% { opacity: 0; } 100% { opacity: 0; } }
+  .t-42_1575 { animation: kf_42_1575 618s linear infinite; }
+  @keyframes kf_42_1575 { 0% { animation-timing-function: step-end; opacity: 0; } 38.835% { animation-timing-function: step-end; opacity: 1; } 48.544% { opacity: 0; } 100% { opacity: 0; } }
+  .t-42_1566 { animation: kf_42_1566 618s linear infinite; }
+  @keyframes kf_42_1566 { 0% { animation-timing-function: step-end; opacity: 0; } 48.544% { animation-timing-function: step-end; opacity: 1; } 58.252% { opacity: 0; } 100% { opacity: 0; } }
+  .t-42_170 { animation: kf_42_170 618s linear infinite; }
+  @keyframes kf_42_170 { 0% { animation-timing-function: step-end; opacity: 0; } 58.252% { animation-timing-function: step-end; opacity: 1; } 67.961% { opacity: 0; } 100% { opacity: 0; } }
+  .t-42_171 { animation: kf_42_171 618s linear infinite; }
+  @keyframes kf_42_171 { 0% { animation-timing-function: step-end; opacity: 0; } 67.961% { animation-timing-function: step-end; opacity: 1; } 77.67% { opacity: 0; } 100% { opacity: 0; } }
+  .t-42_172 { animation: kf_42_172 618s linear infinite; }
+  @keyframes kf_42_172 { 0% { animation-timing-function: step-end; opacity: 0; } 77.67% { animation-timing-function: step-end; opacity: 1; } 77.832% { opacity: 0; } 100% { opacity: 0; } }
+
+  @media (prefers-reduced-motion: reduce) { .track, .coach > i, .digit { animation: none !important; } }
+</style>
+</head>
+<body>
+  <main class="stage">
+    <section class="board" data-node-id="37:2" aria-label="Namma Metro signboard: towards Mysuru Road, train arriving in 3 minutes">
+      <div class="dest" data-node-id="37:3">
+        <p class="txt kn caption" lang="kn">ಕಡೆಗೆ / TOWARDS</p>
+        <p class="txt kn name-kn" lang="kn">ಮೈಸೂರು ರಸ್ತೆ</p>
+        <h1 class="txt en name-en">Mysuru Road</h1>
+        <p class="txt kn time-kn" lang="kn">ಸಮಯ</p>
+        <p class="txt en time-en">TIME</p>
+        <div class="countdown" data-node-id="41:2">
+        <p class="digit t-42_1611" data-node-id="42:1611">03</p>
+        <p class="digit t-42_1602" data-node-id="42:1602" style="opacity:0">02</p>
+        <p class="digit t-42_1593" data-node-id="42:1593" style="opacity:0">01</p>
+        <p class="digit t-42_1584" data-node-id="42:1584" style="opacity:0">00</p>
+        <p class="digit t-42_1575" data-node-id="42:1575" style="opacity:0">00</p>
+        <p class="digit t-42_1566" data-node-id="42:1566" style="opacity:0">00</p>
+        <p class="digit t-42_170" data-node-id="42:170" style="opacity:0">00</p>
+        <p class="digit t-42_171" data-node-id="42:171" style="opacity:0">00</p>
+        <p class="digit t-42_172" data-node-id="42:172" style="opacity:0">00</p>
+        </div>
+      </div>
+      <div class="strip" data-node-id="37:4" aria-hidden="true">
+        <div class="track" data-node-id="41:7"><i style="left:2px;background:#919191"></i><i style="left:14px;background:#4a4a4a"></i><i style="left:26px;background:#4a4a4a"></i><i style="left:38px;background:#4a4a4a"></i><i style="left:50px;background:#4a4a4a"></i><i style="left:62px;background:#4a4a4a"></i><i style="left:74px;background:#4a4a4a"></i><i style="left:86px;background:#4a4a4a"></i><i style="left:98px;background:#4a4a4a"></i><i style="left:110px;background:#4a4a4a"></i><i style="left:122px;background:#919191"></i><i style="left:134px;background:#4a4a4a"></i><i style="left:146px;background:#4a4a4a"></i><i style="left:158px;background:#4a4a4a"></i><i style="left:170px;background:#4a4a4a"></i><i style="left:182px;background:#4a4a4a"></i><i style="left:194px;background:#4a4a4a"></i><i style="left:206px;background:#4a4a4a"></i><i style="left:218px;background:#4a4a4a"></i><i style="left:230px;background:#4a4a4a"></i><i style="left:242px;background:#919191"></i><i style="left:254px;background:#4a4a4a"></i><i style="left:266px;background:#4a4a4a"></i><i style="left:278px;background:#4a4a4a"></i><i style="left:290px;background:#4a4a4a"></i><i style="left:302px;background:#4a4a4a"></i><i style="left:314px;background:#4a4a4a"></i><i style="left:326px;background:#4a4a4a"></i><i style="left:338px;background:#4a4a4a"></i><i style="left:350px;background:#4a4a4a"></i><i style="left:362px;background:#919191"></i><i style="left:374px;background:#4a4a4a"></i><i style="left:386px;background:#4a4a4a"></i><i style="left:398px;background:#4a4a4a"></i><i style="left:410px;background:#4a4a4a"></i><i style="left:422px;background:#4a4a4a"></i><i style="left:434px;background:#4a4a4a"></i><i style="left:446px;background:#4a4a4a"></i><i style="left:458px;background:#4a4a4a"></i><i style="left:470px;background:#4a4a4a"></i><i style="left:482px;background:#919191"></i><i style="left:494px;background:#4a4a4a"></i><i style="left:506px;background:#4a4a4a"></i><i style="left:518px;background:#4a4a4a"></i><i style="left:530px;background:#4a4a4a"></i><i style="left:542px;background:#4a4a4a"></i><i style="left:554px;background:#4a4a4a"></i><i style="left:566px;background:#4a4a4a"></i><i style="left:578px;background:#4a4a4a"></i><i style="left:590px;background:#4a4a4a"></i><i style="left:602px;background:#919191"></i><i style="left:614px;background:#4a4a4a"></i><i style="left:626px;background:#4a4a4a"></i><i style="left:638px;background:#4a4a4a"></i><i style="left:650px;background:#4a4a4a"></i><i style="left:662px;background:#4a4a4a"></i><i style="left:674px;background:#4a4a4a"></i><i style="left:686px;background:#4a4a4a"></i><i style="left:698px;background:#4a4a4a"></i><i style="left:710px;background:#4a4a4a"></i><i style="left:722px;background:#919191"></i><i style="left:734px;background:#4a4a4a"></i><i style="left:746px;background:#4a4a4a"></i><i style="left:758px;background:#4a4a4a"></i><i style="left:770px;background:#4a4a4a"></i><i style="left:782px;background:#4a4a4a"></i><i style="left:794px;background:#4a4a4a"></i><i style="left:806px;background:#4a4a4a"></i><i style="left:818px;background:#4a4a4a"></i><i style="left:830px;background:#4a4a4a"></i><i style="left:842px;background:#919191"></i><i style="left:854px;background:#4a4a4a"></i><i style="left:866px;background:#4a4a4a"></i><i style="left:878px;background:#4a4a4a"></i><i style="left:890px;background:#4a4a4a"></i><i style="left:902px;background:#4a4a4a"></i><i style="left:914px;background:#4a4a4a"></i><i style="left:926px;background:#4a4a4a"></i><i style="left:938px;background:#4a4a4a"></i><i style="left:950px;background:#4a4a4a"></i><i style="left:962px;background:#919191"></i><i style="left:974px;background:#4a4a4a"></i><i style="left:986px;background:#4a4a4a"></i><i style="left:998px;background:#4a4a4a"></i><i style="left:1010px;background:#4a4a4a"></i><i style="left:1022px;background:#4a4a4a"></i><i style="left:1034px;background:#4a4a4a"></i><i style="left:1046px;background:#4a4a4a"></i><i style="left:1058px;background:#4a4a4a"></i><i style="left:1070px;background:#4a4a4a"></i><i style="left:1082px;background:#919191"></i><i style="left:1094px;background:#4a4a4a"></i><i style="left:1106px;background:#4a4a4a"></i><i style="left:1118px;background:#4a4a4a"></i><i style="left:1130px;background:#4a4a4a"></i><i style="left:1142px;background:#4a4a4a"></i><i style="left:1154px;background:#4a4a4a"></i><i style="left:1166px;background:#4a4a4a"></i><i style="left:1178px;background:#4a4a4a"></i><i style="left:1190px;background:#4a4a4a"></i><i style="left:1202px;background:#919191"></i><i style="left:1214px;background:#4a4a4a"></i><i style="left:1226px;background:#4a4a4a"></i><i style="left:1238px;background:#4a4a4a"></i><i style="left:1250px;background:#4a4a4a"></i><i style="left:1262px;background:#4a4a4a"></i><i style="left:1274px;background:#4a4a4a"></i><i style="left:1286px;background:#4a4a4a"></i><i style="left:1298px;background:#4a4a4a"></i><i style="left:1310px;background:#4a4a4a"></i><i style="left:1322px;background:#919191"></i><i style="left:1334px;background:#4a4a4a"></i><i style="left:1346px;background:#4a4a4a"></i><i style="left:1358px;background:#4a4a4a"></i><i style="left:1370px;background:#4a4a4a"></i><i style="left:1382px;background:#4a4a4a"></i><i style="left:1394px;background:#4a4a4a"></i><i style="left:1406px;background:#4a4a4a"></i><i style="left:1418px;background:#4a4a4a"></i><i style="left:1430px;background:#4a4a4a"></i><i style="left:1442px;background:#919191"></i><i style="left:1454px;background:#4a4a4a"></i><i style="left:1466px;background:#4a4a4a"></i><i style="left:1478px;background:#4a4a4a"></i><i style="left:1490px;background:#4a4a4a"></i><i style="left:1502px;background:#4a4a4a"></i><i style="left:1514px;background:#4a4a4a"></i><i style="left:1526px;background:#4a4a4a"></i><i style="left:1538px;background:#4a4a4a"></i><i style="left:1550px;background:#4a4a4a"></i><i style="left:1562px;background:#919191"></i><i style="left:1574px;background:#4a4a4a"></i><i style="left:1586px;background:#4a4a4a"></i><i style="left:1598px;background:#4a4a4a"></i><i style="left:1610px;background:#4a4a4a"></i><i style="left:1622px;background:#4a4a4a"></i><i style="left:1634px;background:#4a4a4a"></i><i style="left:1646px;background:#4a4a4a"></i><i style="left:1658px;background:#4a4a4a"></i><i style="left:1670px;background:#4a4a4a"></i><i style="left:1682px;background:#919191"></i><i style="left:1694px;background:#4a4a4a"></i><i style="left:1706px;background:#4a4a4a"></i><i style="left:1718px;background:#4a4a4a"></i><i style="left:1730px;background:#4a4a4a"></i><i style="left:1742px;background:#4a4a4a"></i><i style="left:1754px;background:#4a4a4a"></i><i style="left:1766px;background:#4a4a4a"></i><i style="left:1778px;background:#4a4a4a"></i><i style="left:1790px;background:#4a4a4a"></i><i style="left:1802px;background:#919191"></i><i style="left:1814px;background:#4a4a4a"></i><i style="left:1826px;background:#4a4a4a"></i><i style="left:1838px;background:#4a4a4a"></i><i style="left:1850px;background:#4a4a4a"></i><i style="left:1862px;background:#4a4a4a"></i><i style="left:1874px;background:#4a4a4a"></i><i style="left:1886px;background:#4a4a4a"></i><i style="left:1898px;background:#4a4a4a"></i><i style="left:1910px;background:#4a4a4a"></i><i style="left:1922px;background:#919191"></i><i style="left:1934px;background:#4a4a4a"></i><i style="left:1946px;background:#4a4a4a"></i><i style="left:1958px;background:#4a4a4a"></i><i style="left:1970px;background:#4a4a4a"></i><i style="left:1982px;background:#4a4a4a"></i><i style="left:1994px;background:#4a4a4a"></i><i style="left:2006px;background:#4a4a4a"></i><i style="left:2018px;background:#4a4a4a"></i><i style="left:2030px;background:#4a4a4a"></i><i style="left:2042px;background:#919191"></i><i style="left:2054px;background:#4a4a4a"></i><i style="left:2066px;background:#4a4a4a"></i><i style="left:2078px;background:#4a4a4a"></i><i style="left:2090px;background:#4a4a4a"></i><i style="left:2102px;background:#4a4a4a"></i><i style="left:2114px;background:#4a4a4a"></i><i style="left:2126px;background:#4a4a4a"></i><i style="left:2138px;background:#4a4a4a"></i><i style="left:2150px;background:#4a4a4a"></i><i style="left:2162px;background:#919191"></i><i style="left:2174px;background:#4a4a4a"></i><i style="left:2186px;background:#4a4a4a"></i><i style="left:2198px;background:#4a4a4a"></i><i style="left:2210px;background:#4a4a4a"></i><i style="left:2222px;background:#4a4a4a"></i><i style="left:2234px;background:#4a4a4a"></i><i style="left:2246px;background:#4a4a4a"></i><i style="left:2258px;background:#4a4a4a"></i><i style="left:2270px;background:#4a4a4a"></i><i style="left:2282px;background:#919191"></i><i style="left:2294px;background:#4a4a4a"></i><i style="left:2306px;background:#4a4a4a"></i><i style="left:2318px;background:#4a4a4a"></i><i style="left:2330px;background:#4a4a4a"></i><i style="left:2342px;background:#4a4a4a"></i><i style="left:2354px;background:#4a4a4a"></i><i style="left:2366px;background:#4a4a4a"></i><i style="left:2378px;background:#4a4a4a"></i><i style="left:2390px;background:#4a4a4a"></i><i style="left:2402px;background:#919191"></i><i style="left:2414px;background:#4a4a4a"></i><i style="left:2426px;background:#4a4a4a"></i><i style="left:2438px;background:#4a4a4a"></i><i style="left:2450px;background:#4a4a4a"></i><i style="left:2462px;background:#4a4a4a"></i><i style="left:2474px;background:#4a4a4a"></i><i style="left:2486px;background:#4a4a4a"></i><i style="left:2498px;background:#4a4a4a"></i><i style="left:2510px;background:#4a4a4a"></i><i style="left:2522px;background:#919191"></i><i style="left:2534px;background:#4a4a4a"></i><i style="left:2546px;background:#4a4a4a"></i><i style="left:2558px;background:#4a4a4a"></i><i style="left:2570px;background:#4a4a4a"></i><i style="left:2582px;background:#4a4a4a"></i><i style="left:2594px;background:#4a4a4a"></i><i style="left:2606px;background:#4a4a4a"></i><i style="left:2618px;background:#4a4a4a"></i><i style="left:2630px;background:#4a4a4a"></i><i style="left:2642px;background:#919191"></i><i style="left:2654px;background:#4a4a4a"></i><i style="left:2666px;background:#4a4a4a"></i><i style="left:2678px;background:#4a4a4a"></i><i style="left:2690px;background:#4a4a4a"></i><i style="left:2702px;background:#4a4a4a"></i><i style="left:2714px;background:#4a4a4a"></i><i style="left:2726px;background:#4a4a4a"></i><i style="left:2738px;background:#4a4a4a"></i><i style="left:2750px;background:#4a4a4a"></i><i style="left:2762px;background:#919191"></i><i style="left:2774px;background:#4a4a4a"></i><i style="left:2786px;background:#4a4a4a"></i><i style="left:2798px;background:#4a4a4a"></i><i style="left:2810px;background:#4a4a4a"></i><i style="left:2822px;background:#4a4a4a"></i><i style="left:2834px;background:#4a4a4a"></i><i style="left:2846px;background:#4a4a4a"></i><i style="left:2858px;background:#4a4a4a"></i><i style="left:2870px;background:#4a4a4a"></i><i style="left:2882px;background:#919191"></i><i style="left:2894px;background:#4a4a4a"></i><i style="left:2906px;background:#4a4a4a"></i><i style="left:2918px;background:#4a4a4a"></i><i style="left:2930px;background:#4a4a4a"></i><i style="left:2942px;background:#4a4a4a"></i><i style="left:2954px;background:#4a4a4a"></i><i style="left:2966px;background:#4a4a4a"></i><i style="left:2978px;background:#4a4a4a"></i><i style="left:2990px;background:#4a4a4a"></i><i style="left:3002px;background:#919191"></i><i style="left:3014px;background:#4a4a4a"></i><i style="left:3026px;background:#4a4a4a"></i><i style="left:3038px;background:#4a4a4a"></i><i style="left:3050px;background:#4a4a4a"></i><i style="left:3062px;background:#4a4a4a"></i><i style="left:3074px;background:#4a4a4a"></i><i style="left:3086px;background:#4a4a4a"></i><i style="left:3098px;background:#4a4a4a"></i><i style="left:3110px;background:#4a4a4a"></i><i style="left:3122px;background:#919191"></i><i style="left:3134px;background:#4a4a4a"></i><i style="left:3146px;background:#4a4a4a"></i><i style="left:3158px;background:#4a4a4a"></i><i style="left:3170px;background:#4a4a4a"></i><i style="left:3182px;background:#4a4a4a"></i><i style="left:3194px;background:#4a4a4a"></i><i style="left:3206px;background:#4a4a4a"></i><i style="left:3218px;background:#4a4a4a"></i><i style="left:3230px;background:#4a4a4a"></i><i style="left:3242px;background:#919191"></i><i style="left:3254px;background:#4a4a4a"></i><i style="left:3266px;background:#4a4a4a"></i><i style="left:3278px;background:#4a4a4a"></i><i style="left:3290px;background:#4a4a4a"></i><i style="left:3302px;background:#4a4a4a"></i><i style="left:3314px;background:#4a4a4a"></i><i style="left:3326px;background:#4a4a4a"></i><i style="left:3338px;background:#4a4a4a"></i><i style="left:3350px;background:#4a4a4a"></i><i style="left:3362px;background:#919191"></i><i style="left:3374px;background:#4a4a4a"></i><i style="left:3386px;background:#4a4a4a"></i><i style="left:3398px;background:#4a4a4a"></i><i style="left:3410px;background:#4a4a4a"></i><i style="left:3422px;background:#4a4a4a"></i><i style="left:3434px;background:#4a4a4a"></i><i style="left:3446px;background:#4a4a4a"></i><i style="left:3458px;background:#4a4a4a"></i><i style="left:3470px;background:#4a4a4a"></i><i style="left:3482px;background:#919191"></i><i style="left:3494px;background:#4a4a4a"></i><i style="left:3506px;background:#4a4a4a"></i><i style="left:3518px;background:#4a4a4a"></i><i style="left:3530px;background:#4a4a4a"></i><i style="left:3542px;background:#4a4a4a"></i><i style="left:3554px;background:#4a4a4a"></i><i style="left:3566px;background:#4a4a4a"></i><i style="left:3578px;background:#4a4a4a"></i><i style="left:3590px;background:#4a4a4a"></i><i style="left:3602px;background:#919191"></i><i style="left:3614px;background:#4a4a4a"></i><i style="left:3626px;background:#4a4a4a"></i><i style="left:3638px;background:#4a4a4a"></i><i style="left:3650px;background:#4a4a4a"></i><i style="left:3662px;background:#4a4a4a"></i><i style="left:3674px;background:#4a4a4a"></i><i style="left:3686px;background:#4a4a4a"></i><i style="left:3698px;background:#4a4a4a"></i><i style="left:3710px;background:#4a4a4a"></i><i style="left:3722px;background:#919191"></i><i style="left:3734px;background:#4a4a4a"></i><i style="left:3746px;background:#4a4a4a"></i><i style="left:3758px;background:#4a4a4a"></i><i style="left:3770px;background:#4a4a4a"></i><i style="left:3782px;background:#4a4a4a"></i><i style="left:3794px;background:#4a4a4a"></i><i style="left:3806px;background:#4a4a4a"></i><i style="left:3818px;background:#4a4a4a"></i><i style="left:3830px;background:#4a4a4a"></i><i style="left:3842px;background:#919191"></i><i style="left:3854px;background:#4a4a4a"></i><i style="left:3866px;background:#4a4a4a"></i><i style="left:3878px;background:#4a4a4a"></i><i style="left:3890px;background:#4a4a4a"></i><i style="left:3902px;background:#4a4a4a"></i><i style="left:3914px;background:#4a4a4a"></i><i style="left:3926px;background:#4a4a4a"></i><i style="left:3938px;background:#4a4a4a"></i><i style="left:3950px;background:#4a4a4a"></i><i style="left:3962px;background:#919191"></i><i style="left:3974px;background:#4a4a4a"></i><i style="left:3986px;background:#4a4a4a"></i><i style="left:3998px;background:#4a4a4a"></i><i style="left:4010px;background:#4a4a4a"></i><i style="left:4022px;background:#4a4a4a"></i><i style="left:4034px;background:#4a4a4a"></i><i style="left:4046px;background:#4a4a4a"></i><i style="left:4058px;background:#4a4a4a"></i><i style="left:4070px;background:#4a4a4a"></i><i style="left:4082px;background:#919191"></i><i style="left:4094px;background:#4a4a4a"></i><i style="left:4106px;background:#4a4a4a"></i><i style="left:4118px;background:#4a4a4a"></i><i style="left:4130px;background:#4a4a4a"></i><i style="left:4142px;background:#4a4a4a"></i><i style="left:4154px;background:#4a4a4a"></i><i style="left:4166px;background:#4a4a4a"></i><i style="left:4178px;background:#4a4a4a"></i><i style="left:4190px;background:#4a4a4a"></i><i style="left:4202px;background:#919191"></i><i style="left:4214px;background:#4a4a4a"></i><i style="left:4226px;background:#4a4a4a"></i><i style="left:4238px;background:#4a4a4a"></i><i style="left:4250px;background:#4a4a4a"></i><i style="left:4262px;background:#4a4a4a"></i><i style="left:4274px;background:#4a4a4a"></i><i style="left:4286px;background:#4a4a4a"></i><i style="left:4298px;background:#4a4a4a"></i><i style="left:4310px;background:#4a4a4a"></i><i style="left:4322px;background:#919191"></i><i style="left:4334px;background:#4a4a4a"></i><i style="left:4346px;background:#4a4a4a"></i><i style="left:4358px;background:#4a4a4a"></i><i style="left:4370px;background:#4a4a4a"></i><i style="left:4382px;background:#4a4a4a"></i><i style="left:4394px;background:#4a4a4a"></i><i style="left:4406px;background:#4a4a4a"></i><i style="left:4418px;background:#4a4a4a"></i><i style="left:4430px;background:#4a4a4a"></i><i style="left:4442px;background:#919191"></i><i style="left:4454px;background:#4a4a4a"></i><i style="left:4466px;background:#4a4a4a"></i><i style="left:4478px;background:#4a4a4a"></i><i style="left:4490px;background:#4a4a4a"></i><i style="left:4502px;background:#4a4a4a"></i><i style="left:4514px;background:#4a4a4a"></i><i style="left:4526px;background:#4a4a4a"></i><i style="left:4538px;background:#4a4a4a"></i><i style="left:4550px;background:#4a4a4a"></i><i style="left:4562px;background:#919191"></i><i style="left:4574px;background:#4a4a4a"></i><i style="left:4586px;background:#4a4a4a"></i><i style="left:4598px;background:#4a4a4a"></i><i style="left:4610px;background:#4a4a4a"></i><i style="left:4622px;background:#4a4a4a"></i><i style="left:4634px;background:#4a4a4a"></i><i style="left:4646px;background:#4a4a4a"></i><i style="left:4658px;background:#4a4a4a"></i><i style="left:4670px;background:#4a4a4a"></i><i style="left:4682px;background:#919191"></i><i style="left:4694px;background:#4a4a4a"></i><i style="left:4706px;background:#4a4a4a"></i><i style="left:4718px;background:#4a4a4a"></i><i style="left:4730px;background:#4a4a4a"></i><i style="left:4742px;background:#4a4a4a"></i><i style="left:4754px;background:#4a4a4a"></i><i style="left:4766px;background:#4a4a4a"></i><i style="left:4778px;background:#4a4a4a"></i><i style="left:4790px;background:#4a4a4a"></i><i style="left:4802px;background:#919191"></i><i style="left:4814px;background:#4a4a4a"></i><i style="left:4826px;background:#4a4a4a"></i><i style="left:4838px;background:#4a4a4a"></i><i style="left:4850px;background:#4a4a4a"></i><i style="left:4862px;background:#4a4a4a"></i><i style="left:4874px;background:#4a4a4a"></i><i style="left:4886px;background:#4a4a4a"></i><i style="left:4898px;background:#4a4a4a"></i><i style="left:4910px;background:#4a4a4a"></i><i style="left:4922px;background:#919191"></i><i style="left:4934px;background:#4a4a4a"></i><i style="left:4946px;background:#4a4a4a"></i><i style="left:4958px;background:#4a4a4a"></i><i style="left:4970px;background:#4a4a4a"></i><i style="left:4982px;background:#4a4a4a"></i><i style="left:4994px;background:#4a4a4a"></i><i style="left:5006px;background:#4a4a4a"></i><i style="left:5018px;background:#4a4a4a"></i><i style="left:5030px;background:#4a4a4a"></i><i style="left:5042px;background:#919191"></i><i style="left:5054px;background:#4a4a4a"></i><i style="left:5066px;background:#4a4a4a"></i><i style="left:5078px;background:#4a4a4a"></i><i style="left:5090px;background:#4a4a4a"></i><i style="left:5102px;background:#4a4a4a"></i><i style="left:5114px;background:#4a4a4a"></i><i style="left:5126px;background:#4a4a4a"></i><i style="left:5138px;background:#4a4a4a"></i><i style="left:5150px;background:#4a4a4a"></i><i style="left:5162px;background:#919191"></i><i style="left:5174px;background:#4a4a4a"></i><i style="left:5186px;background:#4a4a4a"></i><i style="left:5198px;background:#4a4a4a"></i><i style="left:5210px;background:#4a4a4a"></i><i style="left:5222px;background:#4a4a4a"></i><i style="left:5234px;background:#4a4a4a"></i><i style="left:5246px;background:#4a4a4a"></i><i style="left:5258px;background:#4a4a4a"></i><i style="left:5270px;background:#4a4a4a"></i><i style="left:5282px;background:#919191"></i><i style="left:5294px;background:#4a4a4a"></i><i style="left:5306px;background:#4a4a4a"></i><i style="left:5318px;background:#4a4a4a"></i><i style="left:5330px;background:#4a4a4a"></i><i style="left:5342px;background:#4a4a4a"></i><i style="left:5354px;background:#4a4a4a"></i><i style="left:5366px;background:#4a4a4a"></i><i style="left:5378px;background:#4a4a4a"></i><i style="left:5390px;background:#4a4a4a"></i></div>
+        <div class="train" data-node-id="40:16">
+        <div class="coach coach-1" data-name="Coach 1" style="--base:#7b2d8e"><i class="d1111" style="left:399.5px"></i><i class="d1111" style="left:410.5px"></i><i class="d1111" style="left:421.5px"></i><i class="d1111" style="left:432.5px"></i><i class="d1111" style="left:443.5px"></i><i class="d0000" style="left:454.5px"></i></div>
+        <div class="coach coach-2" data-name="Coach 2" style="--base:#ba68d0"><i class="d0000" style="left:322.5px"></i><i class="d1010" style="left:333.5px"></i><i class="d1111" style="left:344.5px"></i><i class="d1010" style="left:355.5px"></i><i class="d0000" style="left:366.5px"></i><i class="d0000" style="left:377.5px"></i></div>
+        <div class="coach coach-3" data-name="Coach 3" style="--base:#7b2d8e"><i class="d1111" style="left:245.5px"></i><i class="d1111" style="left:256.5px"></i><i class="d1111" style="left:267.5px"></i><i class="d1111" style="left:278.5px"></i><i class="d1111" style="left:289.5px"></i><i class="d0000" style="left:300.5px"></i></div>
+        <div class="coach coach-4" data-name="Coach 4" style="--base:#f5cdf2"><i class="d0000" style="left:168.5px"></i><i class="d0110" style="left:179.5px"></i><i class="d1111" style="left:190.5px"></i><i class="d0110" style="left:201.5px"></i><i class="d0000" style="left:212.5px"></i><i class="d0000" style="left:223.5px"></i></div>
+        <div class="coach coach-5" data-name="Coach 5" style="--base:#ba68d0"><i class="d0000" style="left:91.5px"></i><i class="d1101" style="left:102.5px"></i><i class="d1111" style="left:113.5px"></i><i class="d1101" style="left:124.5px"></i><i class="d0000" style="left:135.5px"></i><i class="d0000" style="left:146.5px"></i></div>
+        <div class="coach coach-6" data-name="Coach 6" style="--base:#f5cdf2"><i class="d0000" style="left:14.5px"></i><i class="d0000" style="left:25.5px"></i><i class="d1111" style="left:36.5px"></i><i class="d0000" style="left:47.5px"></i><i class="d0000" style="left:58.5px"></i><i class="d0000" style="left:69.5px"></i></div>
+        <svg width="516" height="48" viewBox="0 0 516 48" fill="none"><defs><linearGradient id="steel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F1E6F7"/><stop offset=".55" stop-color="#F1E6F7"/><stop offset="1" stop-color="#F1E6F7"/></linearGradient><mask id="coachwin" maskUnits="userSpaceOnUse" x="-4" y="-4" width="524" height="56"><rect x="-4" y="-4" width="524" height="56" fill="#fff"/><rect x="27" y="7" width="65" height="26" rx="3" fill="#000"/><rect x="104" y="7" width="65" height="26" rx="3" fill="#000"/><rect x="181" y="7" width="65" height="26" rx="3" fill="#000"/><rect x="258" y="7" width="65" height="26" rx="3" fill="#000"/><rect x="335" y="7" width="65" height="26" rx="3" fill="#000"/><rect x="412" y="7" width="65" height="26" rx="3" fill="#000"/></mask><clipPath id="bodyclip"><path d="M34 1H466C492 1 511 17 515 34V40Q515 47 508 47H9Q1 47 1 40V36C3 18 14 1 34 1Z"/></clipPath></defs><g mask="url(#coachwin)"><path d="M34 1H466C492 1 511 17 515 34V40Q515 47 508 47H9Q1 47 1 40V36C3 18 14 1 34 1Z" fill="url(#steel)"/><g clip-path="url(#bodyclip)"><rect x="0" y="5" width="516" height="30" fill="#3A3F47"/><rect x="482" y="5" width="34" height="30" fill="#7B2D8E"/><rect x="0" y="39" width="516" height="2.5" fill="#7B2D8E"/></g></g><rect x="27" y="7" width="65" height="26" rx="3" fill="none" stroke="#8A919C" stroke-width=".6"/><rect x="104" y="7" width="65" height="26" rx="3" fill="none" stroke="#8A919C" stroke-width=".6"/><rect x="181" y="7" width="65" height="26" rx="3" fill="none" stroke="#8A919C" stroke-width=".6"/><rect x="258" y="7" width="65" height="26" rx="3" fill="none" stroke="#8A919C" stroke-width=".6"/><rect x="335" y="7" width="65" height="26" rx="3" fill="none" stroke="#8A919C" stroke-width=".6"/><rect x="412" y="7" width="65" height="26" rx="3" fill="none" stroke="#8A919C" stroke-width=".6"/><path d="M24 4C14 5 8 11 5 21Q4.5 24 8 24H24Q26 24 26 22V6Q26 4 24 4Z" fill="#D6DAE0" stroke="#A3AAB4" stroke-width=".8"/><path d="M20 7C14 8 11 11 9 15" stroke="#FFFFFF" stroke-opacity=".35" stroke-width="1" stroke-linecap="round"/><path d="M486 5C497 6 505 12 509 21Q509.5 23 506 23H488Q486 23 486 21V7Q486 5 486 5Z" fill="#D6DAE0" stroke="#A3AAB4" stroke-width=".8"/><path d="M491 8C498 9 502 12 505 17" stroke="#FFFFFF" stroke-opacity=".35" stroke-width="1" stroke-linecap="round"/><path d="M34 1H466C492 1 511 17 515 34V40Q515 47 508 47H9Q1 47 1 40V36C3 18 14 1 34 1Z" stroke="#8A919C" stroke-width="1.2" stroke-linejoin="round"/><path d="M482 1V47" stroke="#9AA1AB" stroke-width="1.5"/><circle cx="508" cy="31" r="2.4" fill="#FFF4C2"/></svg><b style="left:97.25px"></b><b style="left:174.25px"></b><b style="left:251.25px"></b><b style="left:328.25px"></b><b style="left:405.25px"></b>
+        </div>
+      </div>
+      <div class="rim" data-node-id="37:17"></div>
+    </section>
+  </main>
+<script>
+  const fit = () => {
+    const s = document.documentElement.classList.contains('embed') ? (innerWidth - 16) / 1040 : Math.min(1, (innerWidth - 48) / 1040);
+    document.documentElement.style.setProperty('--fit', s);
+  };
+  addEventListener('resize', fit); fit();
+</script>
+<script>
+  /* Metro coach board, simulator build. The train runs; on "next stop" it slows, stops, people get on
+     and off every coach at the same time (clusters grow from each coach's middle window and shrink
+     from their ends), then it speeds up again. Coaches can fill a lot at a stop but drain at most one
+     level. Parent page API:
+       postMessage({ sim: 'metro', cmd: 'stop', levels: ['H','M','L', ...6] })   // stop and change to these
+       postMessage({ sim: 'metro', cmd: 'pause', levels })   // stop at once; people get on/off to `levels`; stay stopped
+       postMessage({ sim: 'metro', cmd: 'play' })            // run at once
+     The board answers with { from: 'metro', levels, busy, moving } whenever its state changes.
+     The arrival countdown ticks down exactly once per real minute: 03, 02, 01, 00, then the next train from 06 down to 00, and again from 06. */
+  (() => {
+    const track = document.querySelector('.track');
+    const STEP = 70, SKIN = '#D9A47E', OFFC = '#0F1318'   /* empty spots inside the windows look OFF: barely above the strip's own black */;
+    const COUNT = { H: 5, M: 3, L: 1 }, ORDER = [2, 1, 3, 0, 4, 5];
+    const RANK = Object.fromEntries(ORDER.map((led, r) => [led, r]));
+    const RANKV = { L: 0, M: 1, H: 2 }, BYV = ['L', 'M', 'H'];
+    const litFor = lv => lv.map(l => [...Array(6)].map((_, j) => RANK[j] < COUNT[l]));
+    let levels = ['H', 'M', 'H', 'L', 'M', 'L'];
+    let lit = litFor(levels);
+    const coachHoles = [...Array(6)].map((_, c) => [...document.querySelectorAll(`.coach-${c + 1} > i`)]);
+    coachHoles.flat().forEach(h => { h.style.animation = 'none'; });
+
+    let step = 0; const queue = [];                    // queued frames: { move: bool, change?: [c, j, on] }
+    const GAPS = [1, 1, 2, 2, 3, 3, 4, 5, 6, 8];
+    const decel = () => { for (const g of GAPS) { for (let i = 1; i < g; i++) queue.push({ move: false }); queue.push({ move: true }); } };
+    const accel = () => { for (const g of [...GAPS].reverse()) { for (let i = 1; i < g; i++) queue.push({ move: false }); queue.push({ move: true }); } };
+    const stopFrames = (from, to, n = 60) => {
+      const f = [...Array(n)].map(() => ({ move: false, changes: [] }));
+      for (let c = 0; c < 6; c++) {
+        const seats = [...Array(6).keys()];
+        const ons = seats.filter(j => to[c][j] && !from[c][j]).sort((x, y) => RANK[x] - RANK[y]);
+        const offs = seats.filter(j => !to[c][j] && from[c][j]).sort((x, y) => RANK[y] - RANK[x]);
+        const list = [...ons, ...offs], lead = 6 + Math.floor(Math.random() * 6);
+        list.forEach((j, k) => f[Math.round(lead + (k + 0.5) * (n - lead - 10) / list.length)].changes.push([c, j, to[c][j]]));
+      }
+      queue.push(...f);
+    };
+    // a stop, in two clear beats: first people get OFF (quickly, every coach empties a level so the
+    // lit windows visibly go dark), a short pause, then people get ON up to the new crowd level.
+    const stopSeq = (fromLv, toLv, n = 64) => {
+      const mid = fromLv.map((f, c) => BYV[Math.max(0, Math.min(RANKV[f], RANKV[toLv[c]]) - 1)]);
+      const A = litFor(fromLv), M = litFor(mid), B = litFor(toLv);
+      const f = [...Array(n)].map(() => ({ move: false, changes: [] }));
+      const spread = (list, a, b, c, val) => list.forEach((j, k) => f[Math.round(a + (k + 0.5) * (b - a) / list.length)].changes.push([c, j, val]));
+      for (let c = 0; c < 6; c++) {
+        const seats = [...Array(6).keys()];
+        spread(seats.filter(j => A[c][j] && !M[c][j]).sort((x, y) => RANK[y] - RANK[x]), 2, 16, c, false);   // getting off: fast
+        spread(seats.filter(j => B[c][j] && !M[c][j]).sort((x, y) => RANK[x] - RANK[y]), 26, n - 6, c, true); // getting on
+      }
+      queue.push(...f);
+    };
+    let busy = false, moving = true;
+    const report = () => parent.postMessage({ from: 'metro', levels, busy, moving }, '*');
+    const goTo = (want) => {
+      if (busy) return;
+      // drain at most one level per stop
+      const next = want.map((w, c) => RANKV[w] < RANKV[levels[c]] - 1 ? BYV[RANKV[levels[c]] - 1] : w);
+      const from = litFor(levels), to = litFor(next);
+      busy = true; report();
+      decel(); stopSeq(levels, next); accel();
+      queue.push({ done: next });
+    };
+    const clampDrain = (want) => want.map((w, c) => RANKV[w] < RANKV[levels[c]] - 1 ? BYV[RANKV[levels[c]] - 1] : w);
+    const pause = (want) => {                       // stop at a station and stay there
+      if (busy || !moving) return;
+      const next = clampDrain(want || levels);
+      busy = true; report();
+      queue.push({ halt: true }); stopSeq(levels, next);   // stops at once: off first, then on
+      queue.push({ done: next });
+    };
+    const play = () => { if (moving) return; queue.length = 0; lit = litFor(levels); moving = true; busy = false; report(); };   // starts at once
+    addEventListener('message', (e) => {
+      const d = e.data; if (!d || d.sim !== 'metro') return;
+      if (d.cmd === 'stop' && Array.isArray(d.levels)) goTo(d.levels);
+      if (d.cmd === 'pause') pause(d.levels);
+      if (d.cmd === 'play') play();
+    });
+
+    // countdown: exactly one step per real minute
+    const digits = [...document.querySelectorAll('.countdown .digit')];
+    digits.forEach((dg, i) => { dg.style.animation = 'none'; dg.style.opacity = i ? 0 : 1; });
+    const t0 = performance.now();
+    const tickClock = () => { const n = Math.floor((performance.now() - t0) / 60000), m = n <= 3 ? 3 - n : 6 - ((n - 4) % 7);   /* 03 … 00, then the next train: 06 … 00, and again from 06 */ if (digits[0].textContent !== '0' + m) digits[0].textContent = '0' + m; };
+    tickClock(); setInterval(tickClock, 250);
+
+    const greys = [...track.children].map(i => i.style.background);
+    const paint = () => {
+      track.style.transform = `translateX(${-12 * (step % 10)}px)`;
+      coachHoles.forEach((hs, c) => hs.forEach((h, j) => { h.style.background = lit[c][j] ? SKIN : OFFC; }));
+    };
+    let lastT = performance.now(), acc = 0;
+    const tick = (now) => {
+      acc += now - lastT; lastT = now;
+      while (acc >= STEP) {
+        acc -= STEP;
+        const fr = queue.shift();
+        if (!fr) { if (moving) step++; }               // running freely (or standing at a station)
+        else {
+          if (fr.move) step++;
+          (fr.changes || []).forEach(([c, j, on]) => { lit[c][j] = on; });
+          if (fr.halt) { moving = false; report(); }
+          if (fr.resume) { moving = true; busy = false; report(); }
+          if (fr.done) { levels = fr.done; busy = false; report(); }
+        }
+      }
+      paint();
+      requestAnimationFrame(tick);
+    };
+    paint(); report();
+    requestAnimationFrame(tick);
+  })();
+</script>
+</body>
+</html>
