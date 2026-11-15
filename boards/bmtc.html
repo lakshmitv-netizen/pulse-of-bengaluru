@@ -231,7 +231,10 @@ if (new URLSearchParams(location.search).has('embed')) document.documentElement.
   const speedAt = p => p < 6 ? 1 : p < 7 ? 1 - (p - 6) : p < 12 ? 0 : p < 13 ? p - 12 : 1;
   // the bus is fully stopped from 7 s to 12 s; passengers board/alight only inside that window
   const STOP_FROM = 7.4, STOP_TO = 11.6;
+  // ?fast: the bus stays parked and just flips between its crowd states (for the small "how full" preview)
+  const FAST = new URLSearchParams(location.search).has('fast'), FAST_STEP = 1.2;
   const busState = (i, t) => {
+    if (FAST) { const states = INSTANCE.arrivals[i].crowd, k = Math.floor(t / FAST_STEP), st = states[k % states.length]; return { p: 0, from: st, to: st, stop: k, speed: 0, open: false }; }
     const T = t + OFFSET[i], p = T % CYCLE, stop = Math.floor(T / CYCLE);
     const states = INSTANCE.arrivals[i].crowd;
     const from = states[stop % states.length], to = states[(stop + 1) % states.length];
